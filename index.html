@@ -33,24 +33,67 @@
         }
 
         /*
-          This transparent layer sits above the train board.
-          It captures taps, swipes and mouse drags.
+          Swipe zones cover only the outer edges.
+          The centre of the TIGER page remains interactive.
         */
-        #controls {
+        .swipe-zone {
             position: fixed;
-            inset: 0;
+            top: 0;
+            bottom: 0;
+            width: 8%;
+            min-width: 50px;
+            max-width: 90px;
             z-index: 10;
             background: transparent;
             touch-action: none;
             cursor: grab;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        #controls:active {
+        .swipe-zone:active {
             cursor: grabbing;
         }
 
+        #leftZone {
+            left: 0;
+        }
+
+        #rightZone {
+            right: 0;
+        }
+
         /*
-          Small page indicator shown briefly after switching.
+          Subtle edge arrows appear briefly when the edge
+          is touched. They are hidden at other times.
+        */
+        .edge-arrow {
+            position: absolute;
+            top: 50%;
+            color: rgba(255, 255, 255, 0.9);
+            font-family: Arial, sans-serif;
+            font-size: 42px;
+            line-height: 1;
+            text-shadow: 0 1px 5px #000;
+            transform: translateY(-50%);
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            pointer-events: none;
+        }
+
+        #leftZone .edge-arrow {
+            left: 12px;
+        }
+
+        #rightZone .edge-arrow {
+            right: 12px;
+        }
+
+        .swipe-zone.active .edge-arrow {
+            opacity: 1;
+        }
+
+        /*
+          Board indicator shown briefly after switching.
         */
         #indicator {
             position: fixed;
@@ -84,7 +127,7 @@
         }
 
         /*
-          Temporary board label for easy testing.
+          Board name shown briefly after switching.
         */
         #boardLabel {
             position: fixed;
@@ -117,9 +160,20 @@
     ></iframe>
 
     <div
-        id="controls"
-        aria-label="Swipe left or right to change departure board"
-    ></div>
+        id="leftZone"
+        class="swipe-zone"
+        aria-label="Swipe right or tap to show the previous board"
+    >
+        <span class="edge-arrow">‹</span>
+    </div>
+
+    <div
+        id="rightZone"
+        class="swipe-zone"
+        aria-label="Swipe left or tap to show the next board"
+    >
+        <span class="edge-arrow">›</span>
+    </div>
 
     <div id="boardLabel" aria-hidden="true"></div>
 
@@ -142,25 +196,22 @@
             }
         ];
 
-        // Switch automatically after 20 seconds.
+        // Automatically change after 20 seconds.
         const switchDelay = 20000;
 
         // Minimum horizontal distance required for a swipe.
-        const swipeThreshold = 60;
+        const swipeThreshold = 45;
 
-        // A swipe must be more horizontal than vertical.
-        const directionRatio = 1.2;
+        // Tap must move less than this distance.
+        const tapThreshold = 12;
 
         let currentPage = 0;
         let switchTimer = null;
         let messageTimer = null;
 
-        let pointerActive = false;
-        let startX = 0;
-        let startY = 0;
-
         const board = document.getElementById("board");
-        const controls = document.getElementById("controls");
+        const leftZone = document.getElementById("leftZone");
+        const rightZone = document.getElementById("rightZone");
         const indicator = document.getElementById("indicator");
         const boardLabel = document.getElementById("boardLabel");
         const dots = document.querySelectorAll(".dot");
@@ -175,7 +226,7 @@
             updateIndicator();
 
             if (showMessage) {
-                showBoardMessage();
+                displayBoardMessage();
             }
         }
 
@@ -211,11 +262,10 @@
         }
 
 
-        function showBoardMessage() {
+        function displayBoardMessage() {
             clearTimeout(messageTimer);
 
-            boardLabel.textContent =
-                pages[currentPage].name;
+            boardLabel.textContent = pages[currentPage].name;
 
             indicator.classList.add("visible");
             boardLabel.classList.add("visible");
@@ -228,74 +278,110 @@
 
 
         /*
-          Start tracking a mouse, touch or pen gesture.
+          Add pointer controls to one of the edge zones.
         */
-        controls.addEventListener(
-            "pointerdown",
-            function (event) {
-                pointerActive = true;
+        function configureSwipeZone(zone, side) {
+            let pointerActive = false;
+            let startX = 0;
+            let startY = 0;
 
-                startX = event.clientX;
-                startY = event.clientY;
+            zone.addEventListener(
+                "pointerdown",
+                function (event) {
+                    pointerActive = true;
 
-                controls.setPointerCapture(event.pointerId);
+                    startX = event.clientX;
+                    startY = event.clientY;
 
-                resetTimer();
-            }
-        );
+                    zone.classList.add("active");
+                    zone.setPointerCapture(event.pointerId);
 
-
-        /*
-          Finish the gesture and determine its direction.
-        */
-        controls.addEventListener(
-            "pointerup",
-            function (event) {
-                if (!pointerActive) {
-                    return;
-                }
-
-                pointerActive = false;
-
-                const distanceX = event.clientX - startX;
-                const distanceY = event.clientY - startY;
-
-                const horizontalDistance =
-                    Math.abs(distanceX);
-
-                const verticalDistance =
-                    Math.abs(distanceY);
-
-                const isSwipe =
-                    horizontalDistance >= swipeThreshold &&
-                    horizontalDistance >
-                        verticalDistance * directionRatio;
-
-                if (isSwipe) {
-                    if (distanceX < 0) {
-                        showNextPage();
-                    } else {
-                        showPreviousPage();
-                    }
-                } else {
-                    // A tap or small movement resets the timer.
                     resetTimer();
                 }
-            }
-        );
+            );
 
 
-        controls.addEventListener(
-            "pointercancel",
-            function () {
-                pointerActive = false;
-                resetTimer();
-            }
-        );
+            zone.addEventListener(
+                "pointerup",
+                function (event) {
+                    if (!pointerActive) {
+                        return;
+                    }
+
+                    pointerActive = false;
+                    zone.classList.remove("active");
+
+                    const distanceX = event.clientX - startX;
+                    const distanceY = event.clientY - startY;
+
+                    const horizontalDistance =
+                        Math.abs(distanceX);
+
+                    const verticalDistance =
+                        Math.abs(distanceY);
+
+                    const isHorizontalSwipe =
+                        horizontalDistance >= swipeThreshold &&
+                        horizontalDistance > verticalDistance;
+
+                    const isTap =
+                        horizontalDistance <= tapThreshold &&
+                        verticalDistance <= tapThreshold;
+
+                    if (isHorizontalSwipe) {
+                        if (distanceX < 0) {
+                            showNextPage();
+                        } else {
+                            showPreviousPage();
+                        }
+
+                        return;
+                    }
+
+                    /*
+                      A tap on the left edge shows the previous
+                      board; a tap on the right shows the next.
+                    */
+                    if (isTap) {
+                        if (side === "left") {
+                            showPreviousPage();
+                        } else {
+                            showNextPage();
+                        }
+
+                        return;
+                    }
+
+                    resetTimer();
+                }
+            );
+
+
+            zone.addEventListener(
+                "pointercancel",
+                function () {
+                    pointerActive = false;
+                    zone.classList.remove("active");
+                    resetTimer();
+                }
+            );
+
+
+            zone.addEventListener(
+                "contextmenu",
+                function (event) {
+                    event.preventDefault();
+                }
+            );
+        }
+
+
+        configureSwipeZone(leftZone, "left");
+        configureSwipeZone(rightZone, "right");
 
 
         /*
-          Keyboard controls for PC testing.
+          Arrow keys for testing on a PC.
         */
         window.addEventListener(
             "keydown",
@@ -303,30 +389,16 @@
                 if (event.key === "ArrowRight") {
                     event.preventDefault();
                     showNextPage();
+                    return;
                 }
 
                 if (event.key === "ArrowLeft") {
                     event.preventDefault();
                     showPreviousPage();
+                    return;
                 }
 
-                if (
-                    event.key !== "ArrowRight" &&
-                    event.key !== "ArrowLeft"
-                ) {
-                    resetTimer();
-                }
-            }
-        );
-
-
-        /*
-          Prevent right-click menu on the kiosk display.
-        */
-        controls.addEventListener(
-            "contextmenu",
-            function (event) {
-                event.preventDefault();
+                resetTimer();
             }
         );
 
