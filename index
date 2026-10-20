@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, user-scalable=no"
+    >
+
+    <title>Brighton Train Departures</title>
+
+    <style>
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #board {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            background: #000;
+        }
+
+        /*
+          This transparent layer sits above the train board.
+          It captures taps, swipes and mouse drags.
+        */
+        #controls {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            background: transparent;
+            touch-action: none;
+            cursor: grab;
+        }
+
+        #controls:active {
+            cursor: grabbing;
+        }
+
+        /*
+          Small page indicator shown briefly after switching.
+        */
+        #indicator {
+            position: fixed;
+            left: 50%;
+            bottom: 18px;
+            z-index: 20;
+            display: flex;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 20px;
+            background: rgba(0, 0, 0, 0.55);
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        #indicator.visible {
+            opacity: 1;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .dot.active {
+            background: #fff;
+        }
+
+        /*
+          Temporary board label for easy testing.
+        */
+        #boardLabel {
+            position: fixed;
+            top: 12px;
+            left: 50%;
+            z-index: 20;
+            padding: 7px 12px;
+            border-radius: 6px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        #boardLabel.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <iframe
+        id="board"
+        title="Brighton train departures"
+    ></iframe>
+
+    <div
+        id="controls"
+        aria-label="Swipe left or right to change departure board"
+    ></div>
+
+    <div id="boardLabel" aria-hidden="true"></div>
+
+    <div id="indicator" aria-hidden="true">
+        <span class="dot active"></span>
+        <span class="dot"></span>
+    </div>
+
+    <script>
+        "use strict";
+
+        const pages = [
+            {
+                name: "Brighton",
+                url: "https://tiger.worldline.global/BRGHTN/ciss;graphic=1"
+            },
+            {
+                name: "Brighton Lovers Walk",
+                url: "https://tiger.worldline.global/BRGHLRD/ciss;graphic=1"
+            }
+        ];
+
+        // Switch automatically after 20 seconds.
+        const switchDelay = 20000;
+
+        // Minimum horizontal distance required for a swipe.
+        const swipeThreshold = 60;
+
+        // A swipe must be more horizontal than vertical.
+        const directionRatio = 1.2;
+
+        let currentPage = 0;
+        let switchTimer = null;
+        let messageTimer = null;
+
+        let pointerActive = false;
+        let startX = 0;
+        let startY = 0;
+
+        const board = document.getElementById("board");
+        const controls = document.getElementById("controls");
+        const indicator = document.getElementById("indicator");
+        const boardLabel = document.getElementById("boardLabel");
+        const dots = document.querySelectorAll(".dot");
+
+
+        function loadPage(index, showMessage = true) {
+            currentPage =
+                (index + pages.length) % pages.length;
+
+            board.src = pages[currentPage].url;
+
+            updateIndicator();
+
+            if (showMessage) {
+                showBoardMessage();
+            }
+        }
+
+
+        function showNextPage() {
+            loadPage(currentPage + 1);
+            resetTimer();
+        }
+
+
+        function showPreviousPage() {
+            loadPage(currentPage - 1);
+            resetTimer();
+        }
+
+
+        function resetTimer() {
+            clearTimeout(switchTimer);
+
+            switchTimer = setTimeout(function () {
+                showNextPage();
+            }, switchDelay);
+        }
+
+
+        function updateIndicator() {
+            dots.forEach(function (dot, index) {
+                dot.classList.toggle(
+                    "active",
+                    index === currentPage
+                );
+            });
+        }
+
+
+        function showBoardMessage() {
+            clearTimeout(messageTimer);
+
+            boardLabel.textContent =
+                pages[currentPage].name;
+
+            indicator.classList.add("visible");
+            boardLabel.classList.add("visible");
+
+            messageTimer = setTimeout(function () {
+                indicator.classList.remove("visible");
+                boardLabel.classList.remove("visible");
+            }, 1500);
+        }
+
+
+        /*
+          Start tracking a mouse, touch or pen gesture.
+        */
+        controls.addEventListener(
+            "pointerdown",
+            function (event) {
+                pointerActive = true;
+
+                startX = event.clientX;
+                startY = event.clientY;
+
+                controls.setPointerCapture(event.pointerId);
+
+                resetTimer();
+            }
+        );
+
+
+        /*
+          Finish the gesture and determine its direction.
+        */
+        controls.addEventListener(
+            "pointerup",
+            function (event) {
+                if (!pointerActive) {
+                    return;
+                }
+
+                pointerActive = false;
+
+                const distanceX = event.clientX - startX;
+                const distanceY = event.clientY - startY;
+
+                const horizontalDistance =
+                    Math.abs(distanceX);
+
+                const verticalDistance =
+                    Math.abs(distanceY);
+
+                const isSwipe =
+                    horizontalDistance >= swipeThreshold &&
+                    horizontalDistance >
+                        verticalDistance * directionRatio;
+
+                if (isSwipe) {
+                    if (distanceX < 0) {
+                        showNextPage();
+                    } else {
+                        showPreviousPage();
+                    }
+                } else {
+                    // A tap or small movement resets the timer.
+                    resetTimer();
+                }
+            }
+        );
+
+
+        controls.addEventListener(
+            "pointercancel",
+            function () {
+                pointerActive = false;
+                resetTimer();
+            }
+        );
+
+
+        /*
+          Keyboard controls for PC testing.
+        */
+        window.addEventListener(
+            "keydown",
+            function (event) {
+                if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    showNextPage();
+                }
+
+                if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    showPreviousPage();
+                }
+
+                if (
+                    event.key !== "ArrowRight" &&
+                    event.key !== "ArrowLeft"
+                ) {
+                    resetTimer();
+                }
+            }
+        );
+
+
+        /*
+          Prevent right-click menu on the kiosk display.
+        */
+        controls.addEventListener(
+            "contextmenu",
+            function (event) {
+                event.preventDefault();
+            }
+        );
+
+
+        /*
+          Start on the first board.
+        */
+        loadPage(0, false);
+        resetTimer();
+    </script>
+
+</body>
+</html>
